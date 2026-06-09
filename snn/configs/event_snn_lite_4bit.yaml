@@ -1,0 +1,81 @@
+# EventSNNFlowNetLite - 4-bit Quantization Fine-tuning
+# Fine-tune from 8-bit checkpoint with 4-bit quantization
+# Based on event_snn_lite.yaml with quantization enabled
+
+# Model Configuration
+model_type: 'EventSNNFlowNetLite'
+use_polarity: false                 # Use separate channels for event polarities
+num_bins: 5                         # Event temporal bins
+bin_interval_us: 5000
+base_ch: 8                          # Base number of channels in encoder
+
+enable_logging_params: true         # Log model parameters and statistics to TensorBoard
+
+# Model layer setting
+conv_type: 'SpikingConvBlock'
+lif_type: 'QuantizedLIF'
+decay: 0.5                          # LIF neuron decay factor
+threshold: 1.0                      # LIF neuron firing threshold
+reset: 0.0
+alpha: 10.0                         # Surrogate gradient slope
+use_norm: false
+use_bias: false
+
+# Quantization Settings - 4-bit
+quantized: true                     # This is a quantized model config
+quantize_weights: true              # Enable weight quantization
+quantize_activations: true          # Enable activation quantization
+quantize_mem: true                  # Enable membrane potential range checks
+weight_bit_width: 4                 # Weight quantization bit-width
+act_bit_width: 4                    # Activation quantization bit-width
+mem_bit_width: 5                    # Membrane potential bit-width (range check only)
+
+# Overflow tracking
+accum_bit_width: 13                 # Accumulator bit-width for overflow checking
+track_accum_overflow: true          # Track conv accumulator overflow
+track_mem_overflow: true            # Track membrane potential overflow
+multiplier_bits: 12                 # Integer multiplier M_0 bit-width for requantization
+overflow_mode: 'clamp'          # 'clamp' or 'wrap' behavior on overflow
+
+# PTQ calibration
+num_calib_batches: 26996             # Number of batches for PTQ calibration
+
+# Scale Type Options: "global" | "per_layer" | "per_channel"
+weight_scale_type: 'per_channel'    # Weight scale granularity
+act_scale_type: 'per_layer'         # Activation scale granularity
+
+# Training Settings - Fine-tuning (fewer epochs, lower LR)
+num_epochs: 30
+batch_size: 16
+val_batch_size: 16
+num_workers: 12
+
+# Optimizer Settings - Lower learning rate for fine-tuning
+learning_rate: 0.0001               # 5x lower than training from scratch
+weight_decay: 0.001
+lr_milestones: []
+lr_gamma: 0.5
+
+# Loss Weights (same as base)
+endpoint_weight: 0.50
+angular_weight: 0.50
+epe_ang_weight: 0.00
+
+# Data Settings
+data_root: 'data/hflow320/train_set'
+val_data_root: 'data/hflow320/valid_set'
+camera_size: [320, 320]
+use_events: true
+max_train_samples: null
+max_val_samples: null
+event_mask_disable_epoch: 100
+disable_skip_epoch: 25
+
+# Flow clipping
+flow_clip_range: null
+
+# Training Loop Settings
+grad_clip: 1.0
+log_interval: 10
+save_interval: 5
+image_log_interval: 100
