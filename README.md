@@ -1,4 +1,4 @@
-# HFlow320 and EmFlow
+# HFlow320: A Human-Motion Event-Based Optical Flow Dataset for Compact Model Evaluation
 ![](hflow320_preview.gif)
 
 This repository contains the core software for working with HFlow320 and
