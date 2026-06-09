@@ -186,7 +186,9 @@ To print the parameter count and basic weight-storage sizes:
 python tools/profile_emflow.py --config snn/configs/event_snn_lite.yaml
 ```
 
-## Notes for Researchers
+## Acknowledgements
+
+We thank the authors of [BlinkSim](https://github.com/zju3dv/blink_sim), [MakeHuman](https://static.makehumancommunity.org/makehuman.html), and the [CMU Motion Capture Database](https://sites.google.com/a/cgspeed.com/cgspeed/motion-capture/the-motionbuilder-friendly-bvh-conversion-release-of-cmus-motion-capture-database?authuser=0), [Link](https://mocap.cs.cmu.edu/) for allowing public use of their assets in the creation of the HFlow320 dataset.
 
 If you use HFlow320 or EmFlow in research, please cite the accompanying paper and the
 dataset release.
