@@ -1,6 +1,9 @@
 # HFlow320: A Human-Motion Event-Based Optical Flow Dataset for Compact Model Evaluation
 ![](hflow320_preview.gif)
 
+### Official repository for the HFlow320 dataset
+### [Zenodo Entry](https://zenodo.org/records/19669509) | Paper
+
 This repository contains the core software for working with HFlow320 and
 EmFlow.
 
