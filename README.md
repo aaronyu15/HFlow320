@@ -1,4 +1,5 @@
 # HFlow320 and EmFlow
+![](hflow320_preview.gif)
 
 This repository contains the core software for working with HFlow320 and
 EmFlow.
@@ -45,13 +46,6 @@ dependencies:
 ```bash
 pip install -r requirements.txt
 ```
-
-On the author's machine, the code is tested with the `flow` conda environment:
-
-```bash
-conda activate flow
-```
-
 ## Dataset Layout
 
 Create/extract the dataset inside the repository-local `data/hflow320/`
@@ -194,11 +188,5 @@ python tools/profile_emflow.py --config snn/configs/event_snn_lite.yaml
 
 ## Notes for Researchers
 
-HFlow320 is not meant to replace broad driving or general-scene event-flow
-benchmarks. It is a controlled human-motion dataset intended to make compact
-model development, ablation, and reproducible comparison easier. When reporting
-results, please include the temporal window, number of event bins, bin duration,
-mask policy, checkpoint-selection rule, and any changes to the default config.
-
-If you use HFlow320 or EmFlow in research, cite the accompanying paper and the
+If you use HFlow320 or EmFlow in research, please cite the accompanying paper and the
 dataset release.
