@@ -11,9 +11,9 @@ layers = {
     "ConvBlock": ConvBlock,
 }
 
-class EventSNNFlowNetLite(nn.Module):
+class EmFlow(nn.Module):
     """
-    This is a frozen copy of EventSNNFlowNetLite architecture to ensure
+    This is a frozen copy of EmFlow architecture to ensure
     compatibility when loading older checkpoints as teachers.
     """
     def __init__(

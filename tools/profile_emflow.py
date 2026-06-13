@@ -11,7 +11,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from snn.models import EventSNNFlowNetLite
+from snn.models import EmFlow
 
 
 def load_config(path: Path) -> dict:
@@ -29,7 +29,7 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_config(Path(args.config))
-    model = EventSNNFlowNetLite(config)
+    model = EmFlow(config)
     params = sum(p.numel() for p in model.parameters())
 
     print("EmFlow profile")

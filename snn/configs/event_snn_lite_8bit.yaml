@@ -1,9 +1,9 @@
-# EventSNNFlowNetLite - 8-bit Quantization Fine-tuning
+# EmFlow - 8-bit Quantization Fine-tuning
 # Fine-tune from full-precision checkpoint with 8-bit quantization
 # Based on event_snn_lite.yaml with quantization enabled
 
 # Model Configuration
-model_type: 'EventSNNFlowNetLite'
+model_type: 'EmFlow'
 use_polarity: false                 # Use separate channels for event polarities
 num_bins: 5                         # Event temporal bins
 bin_interval_us: 5000

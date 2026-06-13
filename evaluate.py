@@ -35,7 +35,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from snn.models import EventSNNFlowNetLite
+from snn.models import EmFlow
 from snn.dataset import OpticalFlowDataset
 #from comparisons.dsec.dsec_dataset import DSECOpticalFlowDataset as OpticalFlowDataset
 #from comparisons.mvsec.mvsec_dataset import MVSECDataset as OpticalFlowDataset

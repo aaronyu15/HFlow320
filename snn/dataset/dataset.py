@@ -179,7 +179,7 @@ class OpticalFlowDataset(Dataset):
         - p: polarity (+1 or -1)
         
         Returns:
-            Voxel grid [num_bins, 2, H, W] for EventSNNFlowNetLite (polarity-separated)
+            Voxel grid [num_bins, 2, H, W] for EmFlow (polarity-separated)
             OR [num_bins, H, W] for other models (mixed polarity)
         """
         if len(events) == 0:

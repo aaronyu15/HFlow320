@@ -1,8 +1,8 @@
-# EventSNNFlowNetLite Configuration
+# EmFlow Configuration
 # Newer architecture with temporal bin processing and polarity-separated inputs
 
 # Model Configuration
-model_type: 'EventSNNFlowNetLite'   # Event-aware SNN architecture
+model_type: 'EmFlow'   # Event-aware SNN architecture
 use_polarity: false                # Use separate channels for event polarities
 num_bins: 5                   # Event temporal bins - controls temporal history length
 bin_interval_us: 5000
@@ -21,7 +21,7 @@ alpha: 10.0                         # Surrogate gradient slope (higher = sharper
 use_norm: false
 use_bias: false                      # Enable bias in convolutional layers
 
-# Quantization Settings (now supported by EventSNNFlowNetLite)
+# Quantization Settings (now supported by EmFlow)
 # Note: Start with quantization OFF for baseline, or use 8-bit as starting point
 quantize_weights: false              # Enable weight quantization
 quantize_activations: false          # Enable activation quantization

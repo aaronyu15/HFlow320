@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from snn.dataset import OpticalFlowDataset
-from snn.models import EventSNNFlowNetLite
+from snn.models import EmFlow
 
 
 def load_config(path: Path) -> dict:
@@ -26,7 +26,7 @@ def load_config(path: Path) -> dict:
 
 
 def test_model(config: dict, device: str) -> None:
-    model = EventSNNFlowNetLite(config).to(device)
+    model = EmFlow(config).to(device)
     model.eval()
 
     batch_size = 1
