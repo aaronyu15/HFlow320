@@ -38,13 +38,10 @@ examples/visualize_dataset_sample.py
 tools/profile_emflow.py Small parameter and weight-storage summary script.
 ```
 
-Generated files such as checkpoints, logs, datasets, and outputs are ignored by
-Git.
-
 ## Installation
 
-Create or activate a Python environment with PyTorch, then install the Python
-dependencies:
+Create or activate a Python environment with PyTorch (recommended using Conda), then install the Python
+dependencies. This environment was created using python 3.10.6.
 
 ```bash
 pip install -r requirements.txt
@@ -52,8 +49,7 @@ pip install -r requirements.txt
 ## Dataset Layout
 
 Create/extract the dataset inside the repository-local `data/hflow320/`
-directory. The placeholder folders are included so the repository is
-self-contained, while the actual dataset files remain ignored by Git.
+directory. 
 
 The HFlow320 loader expects one split directory containing sequence folders.
 Each sequence folder should contain `events.h5` and `flow.h5`:
