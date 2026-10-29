@@ -1,11 +1,11 @@
-# EmFlow Configuration
-# Newer architecture with temporal bin processing and polarity-separated inputs
+# EmFlow configuration for HFlow320
 
 # Model Configuration
 model_type: 'EmFlow'   # Event-aware SNN architecture
 use_polarity: false                # Use separate channels for event polarities
-num_bins: 5                   # Event temporal bins - controls temporal history length
-bin_interval_us: 5000
+num_bins: 5                   # Temporal bins within the fixed label-aligned window
+fixed_window_us: 33333        # Approximate interval between consecutive 30 FPS labels
+bin_interval_us: 6667         # Used only when fixed_window_us is not set
 base_ch: 8                # Base number of channels in encoder
 
 enable_logging_params: false                    # Log model parameters and statistics to TensorBoard
@@ -21,8 +21,7 @@ alpha: 10.0                         # Surrogate gradient slope (higher = sharper
 use_norm: false
 use_bias: false                      # Enable bias in convolutional layers
 
-# Quantization Settings (now supported by EmFlow)
-# Note: Start with quantization OFF for baseline, or use 8-bit as starting point
+# Quantization settings; all are disabled for the baseline
 quantize_weights: false              # Enable weight quantization
 quantize_activations: false          # Enable activation quantization
 quantize_mem: false                  # Enable membrane potential quantization
@@ -31,13 +30,13 @@ act_bit_width: 8
 mem_bit_width: 8
 
 # Training Settings
-num_epochs: 50                  # Faster training for prototyping
-batch_size: 32                    # Larger batch for small model
+num_epochs: 50
+batch_size: 32
 val_batch_size: 32
 num_workers: 16                  # Use 0 to avoid multiprocessing with h5py
 
 # Optimizer Settings
-learning_rate: 0.0005              # Higher LR for faster convergence
+learning_rate: 0.0005
 weight_decay: 0.01
 lr_milestones: []
 lr_gamma: 0.5
@@ -45,7 +44,7 @@ lr_gamma: 0.5
 # Loss Weights
 endpoint_weight: 1.00              # Primary EPE loss
 angular_weight: 1.00               # Angular error loss
-epe_ang_weight: 0.00               # Disabled - was causing spatial bias
+epe_ang_weight: 0.00
 
 # Data Settings
 data_root: 'data/hflow320/train_set' # Path to dataset split directory

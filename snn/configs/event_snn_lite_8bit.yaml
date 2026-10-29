@@ -6,7 +6,8 @@
 model_type: 'EmFlow'
 use_polarity: false                 # Use separate channels for event polarities
 num_bins: 5                         # Event temporal bins
-bin_interval_us: 5000
+fixed_window_us: 33333
+bin_interval_us: 6667
 base_ch: 8                          # Base number of channels in encoder
 
 enable_logging_params: true         # Log model parameters and statistics to TensorBoard

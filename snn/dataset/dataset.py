@@ -45,6 +45,8 @@ class OpticalFlowDataset(Dataset):
         self.use_events = config.get('use_events', True)
         self.num_bins = config.get('num_bins', 5)
         self.bin_interval_us = config.get('bin_interval_us', 10000)
+        self.fixed_window_us = config.get('fixed_window_us', None)
+        self.skip_first_frame = config.get('skip_first_frame', False)
         self.use_polarity = config.get('use_polarity', False)
         self.data_size = config.get('data_size', (320, 320))
 
@@ -55,6 +57,21 @@ class OpticalFlowDataset(Dataset):
         
         # Build sample list
         self.samples = self._build_sample_list()
+        max_samples = config.get('max_train_samples', None)
+        if max_samples is not None:
+            max_samples = int(max_samples)
+            if max_samples < len(self.samples):
+                strategy = config.get('sample_subset_strategy', 'prefix')
+                if strategy == 'seeded_shuffle':
+                    subset_seed = int(config.get('subset_seed', config.get('seed', 42)))
+                    rng = np.random.default_rng(subset_seed)
+                    indices = np.sort(rng.choice(len(self.samples), size=max_samples, replace=False))
+                    self.samples = [self.samples[i] for i in indices]
+                elif strategy == 'evenly_spaced':
+                    indices = np.linspace(0, len(self.samples) - 1, max_samples, dtype=np.int64)
+                    self.samples = [self.samples[i] for i in indices]
+                else:
+                    self.samples = self.samples[:max_samples]
 
     
     def _find_sequences(self) -> List[Path]:
@@ -80,7 +97,8 @@ class OpticalFlowDataset(Dataset):
             if self.use_events:
                 event_h5_file = seq_dir / 'events.h5'
                 if event_h5_file.exists():
-                    for frame_idx in range(num_frames):
+                    start_frame = 1 if self.skip_first_frame else 0
+                    for frame_idx in range(start_frame, num_frames):
                         sample = {
                             'sequence': seq_dir.name,
                             'event_h5_path': event_h5_file,
@@ -125,7 +143,11 @@ class OpticalFlowDataset(Dataset):
         try:
             with h5py.File(sample_info['event_h5_path'], 'r') as f:
                 # Use event_end_time as t1, and window backwards
-                time_window_us = self.num_bins * self.bin_interval_us
+                time_window_us = (
+                    self.fixed_window_us
+                    if self.fixed_window_us is not None
+                    else self.num_bins * self.bin_interval_us
+                )
                 t1 = event_end_time
                 t0 = t1 - time_window_us
 
@@ -165,7 +187,10 @@ class OpticalFlowDataset(Dataset):
             'valid_mask': valid_mask,
             'metadata': {
                 'sequence': sample_info['sequence'],
-                'index': sample_info['index']
+                'index': sample_info['index'],
+                'event_h5_path': str(sample_info['event_h5_path']),
+                'flow_h5_path': str(sample_info['flow_h5_path']),
+                'num_frames': int(sample_info['num_frames']),
             }
         }
     
@@ -183,11 +208,11 @@ class OpticalFlowDataset(Dataset):
             OR [num_bins, H, W] for other models (mixed polarity)
         """
         if len(events) == 0:
-            # Return zeros if no events - use polarity-separated format
+            height, width = self.data_size
             if self.use_polarity:
-                return torch.zeros(self.num_bins, 2, 320, 320)  # Default size
+                return torch.zeros(self.num_bins, 2, height, width)
             else:
-                return torch.zeros(self.num_bins, 1, 320, 320)  # Default size      
+                return torch.zeros(self.num_bins, 1, height, width)
         
         # Parse events
         x = events[:, 0].astype(np.int32)

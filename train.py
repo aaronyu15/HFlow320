@@ -30,13 +30,27 @@ def parse_args():
     parser.add_argument('--log-dir', type=str, default='./logs',
                       help='Directory for logs')
     parser.add_argument('--seed', type=int, default=42,
-                      help='Directory for logs')
+                      help='Random seed for Python, NumPy, PyTorch, and DataLoader workers')
     parser.add_argument('--train-data-root', type=str, default=None,
                       help='Override training dataset root (config fallback: data_root)')
     parser.add_argument('--val-data-root', type=str, default=None,
                       help='Validation dataset root (config fallback: val_data_root)')
     
     return parser.parse_args()
+
+
+def seed_everything(seed: int, device: str) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if device == 'cuda':
+        torch.cuda.manual_seed_all(seed)
+
+
+def seed_worker(worker_id: int) -> None:
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 
 def build_dataloaders(config: dict, train_root: str = None, val_root: str = None):
@@ -81,12 +95,17 @@ def build_dataloaders(config: dict, train_root: str = None, val_root: str = None
     #val_config['data_root'] = val_root
     #val_dataset = OpticalFlowDataset(config=val_config)
     
+    generator = torch.Generator()
+    generator.manual_seed(int(config.get('seed', 42)))
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=config.get('batch_size', 4),
         shuffle=True,
         num_workers=config.get('num_workers', 4),
         pin_memory=True,
+        worker_init_fn=seed_worker,
+        generator=generator,
     )
     
     val_loader = DataLoader(
@@ -94,7 +113,9 @@ def build_dataloaders(config: dict, train_root: str = None, val_root: str = None
         batch_size=config.get('val_batch_size', 4),
         shuffle=False,
         num_workers=config.get('num_workers', 4),
-        pin_memory=True
+        pin_memory=True,
+        worker_init_fn=seed_worker,
+        generator=generator,
     )
     
     return train_loader, val_loader
@@ -104,17 +125,14 @@ def main():
     args = parse_args()
     
     config = load_config(args.config)
+    config['seed'] = args.seed
     print(f"Loaded configuration from {args.config}")
     
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
 
-    #seed = args.seed
-    #random.seed(seed)
-    #np.random.seed(seed)
-    #torch.manual_seed(seed)
-    #if device == 'cuda':
-    #    torch.cuda.manual_seed_all(seed)
+    seed_everything(args.seed, device)
+    print(f"Using seed: {args.seed}")
     checkpoint_dir = Path(args.checkpoint_dir) / args.name
     log_dir = Path(args.log_dir) / args.name
     

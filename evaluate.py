@@ -1,33 +1,23 @@
-"""
-Evaluation script for trained SNN models.
+"""Evaluate EmFlow checkpoints with the HFlow320 benchmark protocol.
 
-Supports both full-precision and quantized (PTQ) models.
-Logs TensorBoard visualizations (events, flow, masks) alongside numeric metrics.
+The primary command uses a 33,333 microsecond input window, omits the first
+target in each test sequence, and evaluates the raw-event canonical mask:
 
-Usage:
-    # Evaluate full-precision model (config embedded in checkpoint)
-    python evaluate.py --checkpoint checkpoints/teacher_10000u/best_model.pth
-
-    # Evaluate quantized model (config contains quantized: true)
     python evaluate.py \
-        --checkpoint checkpoints/ptq_8bit/ptq_model.pth \
-        --config snn/configs/event_snn_lite_8bit.yaml
-
-    # Integer-only simulation for quantized models
-    python evaluate.py \
-        --checkpoint checkpoints/teacher_nod1/ptq_model.pth \
-        --config snn/configs/event_snn_lite_8bit.yaml \
-        --name 02_no_d1 \
-        --integer-sim
-
-    # Custom data root and TensorBoard log dir
-    python evaluate.py \
-        --checkpoint checkpoints/teacher_10000u/best_model.pth \
+        --checkpoint checkpoints/emflow_seed1/checkpoint_epoch_50.pth \
+        --config snn/configs/event_snn_lite.yaml \
         --data-root data/hflow320/test_set \
-        --log-dir logs/eval_teacher
+        --eval-window-us 33333 \
+        --skip-first-frame \
+        --no-log \
+        --name emflow_seed1_test
+
+Quantized checkpoints remain supported when their quantized configuration is
+provided with ``--config``.
 """
 
 import argparse
+import csv
 import yaml
 import torch
 import numpy as np
@@ -44,6 +34,13 @@ from snn.utils.logger import Logger
 from snn.utils.visualization import visualize_flow
 from torchvision.utils import make_grid
 from snn.models.quant_utils import print_scale_summary, log_all_overflow_stats, print_overflow_summary
+
+from hflow320_eval_utils import (
+    canonical_mask_aggregate_hash,
+    common_support_masked_metrics,
+    load_target_interval_event_mask,
+    masked_flow_metrics_numpy,
+)
 
 from utils import *
 
@@ -88,6 +85,20 @@ def _spike_rate_pct(spikes, neurons):
     return 100.0 * float(spikes) / float(neurons)
 
 
+def _degrees_scalar(radians):
+    if isinstance(radians, torch.Tensor):
+        radians = radians.detach().cpu().item()
+    return float(np.degrees(radians))
+
+
+def _nanmean_std(values):
+    values = np.asarray(values, dtype=np.float64)
+    finite = values[np.isfinite(values)]
+    if len(finite) == 0:
+        return float('nan'), float('nan')
+    return float(np.mean(finite)), float(np.std(finite))
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Evaluate SNN Optical Flow Model')
 
@@ -122,6 +133,14 @@ def parse_args():
                       help='Collect integer pipeline stats every N samples (default: 200)')
     parser.add_argument('--no-log', action='store_true',
                       help='Disable all TensorBoard logging')
+    parser.add_argument('--no-progress', action='store_true',
+                      help='Disable tqdm progress output')
+    parser.add_argument('--skip-first-frame', action='store_true',
+                      help='Omit frame 0 from every sequence, as required by the primary HFlow320 test protocol')
+    parser.add_argument('--eval-window-us', type=int, default=33333,
+                      help='Endpoint-anchored event window duration in microseconds')
+    parser.add_argument('--common-crop', type=int, nargs=2, default=None,
+                      help='Optional center crop for shared-support reference comparisons')
 
     return parser.parse_args()
 
@@ -454,9 +473,6 @@ def evaluate(args):
     output_dir = Path(args.output_dir) / args.name
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    log_dir = output_dir / 'eval_tensorboard_logs'
-    log_dir.mkdir(parents=True, exist_ok=True)
-
     # Set device
     device = args.device if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
@@ -467,14 +483,13 @@ def evaluate(args):
 
     # Build dataset
     data_root = args.data_root
+    if data_root is None:
+        raise ValueError('--data-root is required')
     dataset_config = config.copy()
     dataset_config['data_root'] = data_root
     dataset_config['max_train_samples'] = args.num_samples
-
-    # MVSEC Train dataset
-    dataset_config['dt'] = 1
-    dataset_config['sequences'] = ['outdoor_day2']
-    dataset_config['crop_size'] = (256, 344)
+    dataset_config['skip_first_frame'] = args.skip_first_frame
+    dataset_config['fixed_window_us'] = int(args.eval_window_us)
     dataset = OpticalFlowDataset(config=dataset_config)
 
     dataloader = DataLoader(
@@ -489,8 +504,11 @@ def evaluate(args):
 
     # Setup TensorBoard logger
     no_log = getattr(args, 'no_log', False)
-    logger = Logger(log_dir=log_dir)
+    logger = None
     if not no_log:
+        log_dir = output_dir / 'eval_tensorboard_logs'
+        log_dir.mkdir(parents=True, exist_ok=True)
+        logger = Logger(log_dir=log_dir)
         logger.log_text('eval/checkpoint', args.checkpoint)
         logger.log_text('eval/data_root', data_root)
         logger.log_text('eval/quantized', str(is_quantized))
@@ -510,7 +528,7 @@ def evaluate(args):
 
     # Evaluate
     with torch.no_grad():
-        for idx, batch in enumerate(tqdm(dataloader, desc="Evaluating")):
+        for idx, batch in enumerate(tqdm(dataloader, desc="Evaluating", disable=args.no_progress)):
             # Enable stats + raw tensor collection only on stats intervals
             do_stats = is_integer_sim and (idx % stats_interval == 0)
             if is_integer_sim and hasattr(model, 'enable_stats'):
@@ -550,12 +568,15 @@ def evaluate(args):
                 pct = _spike_rate_pct(ds, dn)
                 metrics_key = f'spike_rate_pct_{lname}'
                 metrics[metrics_key] = pct
-                logger.log_scalar(f'eval/{metrics_key}', pct, idx)
+                if not no_log:
+                    logger.log_scalar(f'eval/{metrics_key}', pct, idx)
 
             metrics['outliers'] = calculate_outliers(pred_flow, gt_flow, valid_mask_full, threshold=3.0)
             # Angular metrics are produced in radians; convert once so all logs/reports use degrees.
-            metrics['angular_error'] = np.degrees(angular_error(pred_flow, gt_flow, valid_mask_full).cpu())
-            metrics['epe_weighted_angular_error'] = np.degrees(epe_weighted_angular_error(pred_flow, gt_flow, inputs, valid_mask).cpu())
+            metrics['angular_error'] = _degrees_scalar(angular_error(pred_flow, gt_flow, valid_mask_full))
+            metrics['epe_weighted_angular_error'] = _degrees_scalar(
+                epe_weighted_angular_error(pred_flow, gt_flow, inputs, valid_mask)
+            )
             metrics['valid_pixels'] = valid_mask.sum().item()
 
             activity_patch = inputs.sum(dim=(1,2))
@@ -565,9 +586,46 @@ def evaluate(args):
             valid_mask[low_activity_mask] = 0.0
             metrics['epe_mask'] = endpoint_error(pred_flow, gt_flow, valid_mask)
             metrics['outliers_mask'] = calculate_outliers(pred_flow, gt_flow, valid_mask, threshold=3.0)
-            metrics['angular_error_mask'] = np.degrees(angular_error(pred_flow, gt_flow, valid_mask).cpu())
-            metrics['epe_weighted_angular_error_mask'] = np.degrees(epe_weighted_angular_error(pred_flow, gt_flow, inputs, valid_mask).cpu())
+            metrics['angular_error_mask'] = _degrees_scalar(angular_error(pred_flow, gt_flow, valid_mask))
+            metrics['epe_weighted_angular_error_mask'] = _degrees_scalar(
+                epe_weighted_angular_error(pred_flow, gt_flow, inputs, valid_mask)
+            )
             metrics['valid_pixels_mask'] = valid_mask.sum().item()
+
+            event_support = load_target_interval_event_mask(
+                event_h5_path=metadata['event_h5_path'][0],
+                flow_h5_path=metadata['flow_h5_path'][0],
+                frame_idx=int(metadata['index'][0].item()),
+                height=gt_flow.shape[-2],
+                width=gt_flow.shape[-1],
+                num_frames=int(metadata['num_frames'][0].item()),
+            )
+            prediction_np = pred_flow[0].detach().cpu().numpy()
+            target_np = gt_flow[0].detach().cpu().numpy()
+            valid_np = valid_mask_full[0].detach().cpu().numpy()
+            if args.common_crop is None:
+                canonical = masked_flow_metrics_numpy(
+                    prediction_np,
+                    target_np,
+                    valid_np,
+                    event_support['mask'],
+                )
+            else:
+                canonical = common_support_masked_metrics(
+                    prediction_np,
+                    target_np,
+                    valid_np,
+                    event_support['mask'],
+                    tuple(args.common_crop),
+                )
+
+            metrics['canonical_epe'] = canonical['epe']
+            metrics['canonical_outliers'] = canonical['outlier_pct']
+            metrics['canonical_aae'] = canonical['aae_deg']
+            metrics['canonical_pixels'] = canonical['support_pixels']
+            metrics['canonical_coverage'] = canonical['coverage_pct']
+            if 'canonical_mask_hash' in canonical:
+                metrics['canonical_mask_hash'] = canonical['canonical_mask_hash']
 
             # Flow magnitude stats (matching trainer)
             flow_mag = torch.norm(pred_flow, dim=1)
@@ -665,7 +723,13 @@ def evaluate(args):
 
     # Compute average metrics
     avg_metrics = {}
-    numeric_keys = [k for k in all_metrics[0].keys() if k not in ['sequence', 'index', 'int_stats']]
+    if not all_metrics:
+        raise RuntimeError('No samples were evaluated')
+
+    numeric_keys = [
+        key for key in all_metrics[0]
+        if key not in ['sequence', 'index', 'int_stats', 'canonical_mask_hash']
+    ]
     for key in numeric_keys:
         values = []
         for m in all_metrics:
@@ -673,8 +737,7 @@ def evaluate(args):
             if isinstance(v, torch.Tensor):
                 v = v.cpu().numpy()
             values.append(v)
-        avg_metrics[key] = np.mean(values)
-        avg_metrics[f'{key}_std'] = np.std(values)
+        avg_metrics[key], avg_metrics[f'{key}_std'] = _nanmean_std(values)
 
     # Log summary scalars to TensorBoard
     if not no_log:
@@ -684,6 +747,10 @@ def evaluate(args):
         logger.log_scalar('eval/avg_outliers_masked', avg_metrics['outliers_mask'], 0)
         logger.log_scalar('eval/avg_angular_error', avg_metrics['angular_error'], 0)
         logger.log_scalar('eval/avg_angular_error_masked', avg_metrics['angular_error_mask'], 0)
+        logger.log_scalar('eval/avg_canonical_epe', avg_metrics['canonical_epe'], 0)
+        logger.log_scalar('eval/avg_canonical_outliers', avg_metrics['canonical_outliers'], 0)
+        logger.log_scalar('eval/avg_canonical_aae', avg_metrics['canonical_aae'], 0)
+        logger.log_scalar('eval/avg_canonical_coverage', avg_metrics['canonical_coverage'], 0)
         logger.log_scalar('eval/avg_flow_max', avg_metrics['flow_max'], 0)
         logger.log_scalar('eval/avg_flow_avg', avg_metrics['flow_avg'], 0)
 
@@ -719,10 +786,22 @@ def evaluate(args):
     print(f"  Outliers (Masked): {avg_metrics['outliers_mask']:.2f}% ± {avg_metrics['outliers_mask_std']:.2f}%")
     print(f"  Angular Error (Masked): {avg_metrics['angular_error_mask']:.2f}° ± {avg_metrics['angular_error_mask_std']:.2f}°")
     print(f"  EPE Weighted Angular Error (Masked): {avg_metrics['epe_weighted_angular_error_mask']:.2f}° ± {avg_metrics['epe_weighted_angular_error_mask_std']:.2f}°")
+    print(f"  EPE (Canonical Mask): {avg_metrics['canonical_epe']:.4f} ± {avg_metrics['canonical_epe_std']:.4f}")
+    print(f"  Outliers (Canonical Mask): {avg_metrics['canonical_outliers']:.2f}% ± {avg_metrics['canonical_outliers_std']:.2f}%")
+    print(f"  AAE (Canonical Mask): {avg_metrics['canonical_aae']:.2f}° ± {avg_metrics['canonical_aae_std']:.2f}°")
+    print(f"  Canonical Mask Coverage: {avg_metrics['canonical_coverage']:.2f}% ± {avg_metrics['canonical_coverage_std']:.2f}%")
+    if args.common_crop is not None:
+        aggregate_hash = canonical_mask_aggregate_hash([
+            (m['sequence'], int(m['index']), m['canonical_mask_hash'])
+            for m in all_metrics
+        ])
+        print(f"  Common Crop: {tuple(args.common_crop)}")
+        print(f"  Canonical Mask Aggregate Hash: {aggregate_hash}")
     print("="*50)
 
     # Save results to file
     results_file = output_dir / f'evaluate.txt'
+    per_sample_csv = output_dir / 'per_sample_metrics.csv'
     with open(results_file, 'w') as f:
         f.write("EVALUATION RESULTS\n")
         f.write("="*50 + "\n")
@@ -749,11 +828,38 @@ def evaluate(args):
         f.write(f"  Outliers (Masked): {avg_metrics['outliers_mask']:.2f}% ± {avg_metrics['outliers_mask_std']:.2f}%\n")
         f.write(f"  Angular Error (Masked): {avg_metrics['angular_error_mask']:.2f}° ± {avg_metrics['angular_error_mask_std']:.2f}°\n")
         f.write(f"  EPE Weighted Angular Error (Masked): {avg_metrics['epe_weighted_angular_error_mask']:.2f} ± {avg_metrics['epe_weighted_angular_error_mask_std']:.2f}\n")
+        f.write(f"  EPE (Canonical Mask): {avg_metrics['canonical_epe']:.4f} ± {avg_metrics['canonical_epe_std']:.4f}\n")
+        f.write(f"  Outliers (Canonical Mask): {avg_metrics['canonical_outliers']:.2f}% ± {avg_metrics['canonical_outliers_std']:.2f}%\n")
+        f.write(f"  AAE (Canonical Mask): {avg_metrics['canonical_aae']:.2f}° ± {avg_metrics['canonical_aae_std']:.2f}°\n")
+        f.write(f"  Canonical Mask Coverage: {avg_metrics['canonical_coverage']:.2f}% ± {avg_metrics['canonical_coverage_std']:.2f}%\n")
+        if args.common_crop is not None:
+            aggregate_hash = canonical_mask_aggregate_hash([
+                (m['sequence'], int(m['index']), m['canonical_mask_hash'])
+                for m in all_metrics
+            ])
+            f.write(f"  Common Crop: {tuple(args.common_crop)}\n")
+            f.write(f"  Canonical Mask Aggregate Hash: {aggregate_hash}\n")
         f.write("\n" + "="*50 + "\n")
         f.write("\nPer-sample results:\n")
         for m in all_metrics:
             f.write(f"{m['sequence']}_{m['index']:06d}: \n")
-            f.write(f"EPE masked={m['epe_mask']:.4f}, Outliers masked={m['outliers_mask']:.2f}%, AngErr masked={m['angular_error_mask']:.2f}°, EPE Weighted AngErr masked={m['epe_weighted_angular_error_mask']:.2f}°, valid_pixels_mask={m['valid_pixels_mask']}\n")
+            f.write(
+                f"canonical_epe={m['canonical_epe']:.4f}, "
+                f"canonical_outliers={m['canonical_outliers']:.2f}%, "
+                f"canonical_aae={m['canonical_aae']:.2f}°, "
+                f"canonical_pixels={m['canonical_pixels']}, "
+                f"canonical_coverage={m['canonical_coverage']:.2f}%\n"
+            )
+
+    fieldnames = ['sequence', 'index'] + sorted(
+        key for key in all_metrics[0]
+        if key not in ['sequence', 'index', 'int_stats']
+    )
+    with per_sample_csv.open('w', newline='') as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in all_metrics:
+            writer.writerow({key: row.get(key) for key in fieldnames})
 
     # Log and print overflow statistics (quantized models only)
     if is_quantized:
@@ -762,6 +868,7 @@ def evaluate(args):
         print_overflow_summary(model)
 
     print(f"\nResults saved to {results_file}")
+    print(f"Per-sample metrics saved to {per_sample_csv}")
 
     # Write integer inference stats summary
     if getattr(args, 'integer_sim', False):

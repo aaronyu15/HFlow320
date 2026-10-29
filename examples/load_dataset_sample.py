@@ -18,6 +18,7 @@ def build_dataset(args: argparse.Namespace) -> OpticalFlowDataset:
         config={
             "data_root": args.data_root,
             "num_bins": args.num_bins,
+            "fixed_window_us": args.window_us,
             "bin_interval_us": args.bin_interval_us,
             "use_polarity": args.use_polarity,
             "data_size": (args.height, args.width),
@@ -30,7 +31,8 @@ def main() -> None:
     parser.add_argument("--data-root", default="data/hflow320/train_set", help="Path to a split directory.")
     parser.add_argument("--index", type=int, default=0, help="Dataset sample index.")
     parser.add_argument("--num-bins", type=int, default=5, help="Number of temporal event bins.")
-    parser.add_argument("--bin-interval-us", type=int, default=5000, help="Duration of each event bin in microseconds.")
+    parser.add_argument("--window-us", type=int, default=33333, help="Endpoint-anchored event window in microseconds.")
+    parser.add_argument("--bin-interval-us", type=int, default=6667, help="Per-bin duration for configurations without a fixed window.")
     parser.add_argument("--use-polarity", action="store_true", help="Use two event polarity channels.")
     parser.add_argument("--height", type=int, default=320)
     parser.add_argument("--width", type=int, default=320)
